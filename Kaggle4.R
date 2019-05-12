@@ -1,6 +1,7 @@
 # Libraries ---------------------------------------------------------------
 library(tidyverse)
 library(jpeg)
+library(neuralnet)
 
 
 # Load in data ------------------------------------------------------------
@@ -44,22 +45,28 @@ myImgDFReshape = . %>%
 
 
 # Create full data -------------------------------------------------------
-Sunsets = map_df(sunsets, readJPEG_as_df) %>% 
-  myFeatures() %>% 
-  myImgDFReshape %>%
-  mutate(category = "sunsets")
-Trees = map_df(trees, readJPEG_as_df) %>%
-  myFeatures() %>% 
-  myImgDFReshape %>%
-  mutate(category = "trees_and_forest")
-Rivers = map_df(rivers[1:30], readJPEG_as_df) %>% 
-  myFeatures() %>% 
-  myImgDFReshape %>%
-  mutate(category = "rivers")
-Skies = map_df(skies[1:30], readJPEG_as_df) %>% 
-  myFeatures() %>% 
-  myImgDFReshape %>%
-  mutate(category = "cloudy_sky")
+# The method in the kernel gave me many NA's I assume this method was too fast
+# First I specify the first row to get all correct column names and the right column length
+Sunsets <- myImgDFReshape(myFeatures(map_df(sunsets[1], readJPEG_as_df)))
+for (i in 1:length(sunsets)){
+  Sunsets[i,] <- myImgDFReshape(myFeatures(map_df(sunsets[i], readJPEG_as_df)))
+}
+Trees <- myImgDFReshape(myFeatures(map_df(trees[1], readJPEG_as_df)))
+for (i in 1:length(trees)){
+  Trees[i,] <- myImgDFReshape(myFeatures(map_df(trees[i], readJPEG_as_df)))
+}
+Rivers <- myImgDFReshape(myFeatures(map_df(rivers[1], readJPEG_as_df)))
+for (i in 1:length(rivers)){
+  Rivers[i,] <- myImgDFReshape(myFeatures(map_df(rivers[i], readJPEG_as_df)))
+}
+Skies <- myImgDFReshape(myFeatures(map_df(skies[1], readJPEG_as_df)))
+for (i in 1:length(skies)){
+  Skies[i,] <- myImgDFReshape(myFeatures(map_df(skies[i], readJPEG_as_df)))
+}
 
 Train = bind_rows(Sunsets, Trees, Rivers, Skies) 
+
+
+# Models ------------------------------------------------------------------
+nn_model = neuralnet(formula = category ~ ., data = , hidden = 9)
 
