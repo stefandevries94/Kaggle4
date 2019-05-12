@@ -2,6 +2,11 @@
 library(tidyverse)
 library(jpeg)
 library(neuralnet)
+library(tree)
+library(randomForest)
+library(glmnet)
+require(rpart)
+require(FNN)
 
 
 # Load in data ------------------------------------------------------------
@@ -73,21 +78,38 @@ Skies$category = "cloudy_sky"
 Train = bind_rows(Sunsets, Trees, Rivers, Skies) 
 
 
-
-
-# split the data to check how well it did
-Sub <- Train[sample(nrow(Train)),]
-Sub_train <- Sub[1:498,-1]
-Sub_test <- Sub[499:664,-1]
-
-
 # Models ------------------------------------------------------------------
-nn_model = neuralnet(formula = category ~ ., data = Sub_train, hidden = 9)
+# Neural Network
+nn_model = neuralnet(formula = category ~ .- file, data = Train, hidden = c(3,9), threshold = 0.05, stepmax = 1e6)
+plot(nn_model)
 
-# 
-Predict = compute(nn_model,Sub_test)
-prob <- Predict$net.result
-pred <- ifelse(prob>0.5, 1, 0)
-pred
 
-cbind(pred,Sub_test$category)
+
+# Normal tree model
+fittree = rpart(factor(category) ~ . - file, Train)
+opttree = prune(fittree, cp = 0.033333)
+
+predtree = predict(opttree, Train, type='class') # also try opttree in stead of fittree
+table(truth=Train$category, pred = predtree)
+mean(Train$category == predtree)
+
+# Random Forest
+ranfor = randomForest(factor(category) ~ . - file, Train)
+ranfor
+
+predrf = predict(ranfor, Train, type='class')
+table(truth = Train$category, pred = predrf)
+mean(Train$category != predrf)
+
+
+# Submission file ---------------------------------------------------------
+Test <- myImgDFReshape(myFeatures(map_df(test_set[1], readJPEG_as_df)))
+for (i in 1:10){
+  Test[i,] <- myImgDFReshape(myFeatures(map_df(test_set[i], readJPEG_as_df)))
+}
+
+Test %>% 
+  ungroup %>% 
+  transmute(file=file, category = predict(nn_model, ., type = "class"))
+
+
