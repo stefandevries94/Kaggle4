@@ -51,22 +51,43 @@ Sunsets <- myImgDFReshape(myFeatures(map_df(sunsets[1], readJPEG_as_df)))
 for (i in 1:length(sunsets)){
   Sunsets[i,] <- myImgDFReshape(myFeatures(map_df(sunsets[i], readJPEG_as_df)))
 }
+Sunsets$category = "sunsets"
+
 Trees <- myImgDFReshape(myFeatures(map_df(trees[1], readJPEG_as_df)))
 for (i in 1:length(trees)){
   Trees[i,] <- myImgDFReshape(myFeatures(map_df(trees[i], readJPEG_as_df)))
 }
+Trees$category = "trees_and_forest"
+
 Rivers <- myImgDFReshape(myFeatures(map_df(rivers[1], readJPEG_as_df)))
 for (i in 1:length(rivers)){
   Rivers[i,] <- myImgDFReshape(myFeatures(map_df(rivers[i], readJPEG_as_df)))
 }
+Rivers$category = "rivers"
+
 Skies <- myImgDFReshape(myFeatures(map_df(skies[1], readJPEG_as_df)))
 for (i in 1:length(skies)){
   Skies[i,] <- myImgDFReshape(myFeatures(map_df(skies[i], readJPEG_as_df)))
 }
-
+Skies$category = "cloudy_sky"
 Train = bind_rows(Sunsets, Trees, Rivers, Skies) 
 
 
-# Models ------------------------------------------------------------------
-nn_model = neuralnet(formula = category ~ ., data = , hidden = 9)
 
+
+# split the data to check how well it did
+Sub <- Train[sample(nrow(Train)),]
+Sub_train <- Sub[1:498,-1]
+Sub_test <- Sub[499:664,-1]
+
+
+# Models ------------------------------------------------------------------
+nn_model = neuralnet(formula = category ~ ., data = Sub_train, hidden = 9)
+
+# 
+Predict = compute(nn_model,Sub_test)
+prob <- Predict$net.result
+pred <- ifelse(prob>0.5, 1, 0)
+pred
+
+cbind(pred,Sub_test$category)
