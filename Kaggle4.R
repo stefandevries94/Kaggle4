@@ -7,6 +7,7 @@ library(randomForest)
 library(glmnet)
 require(rpart)
 require(FNN)
+library(fBasics)
 
 
 # Load in data ------------------------------------------------------------
@@ -40,7 +41,9 @@ myFeatures  <- . %>% # starting with '.' defines the pipe to be a function
     min = min(pixel_value),
     max = max(pixel_value),
     q25 = quantile(pixel_value, .25),
-    q75 = quantile(pixel_value, .75)
+    q75 = quantile(pixel_value, .75),
+    skew = skewness(pixel_value)[1],
+    kurt = kurtosis(pixel_value)[1]
   ) 
 
 myImgDFReshape = . %>%
@@ -77,6 +80,7 @@ for (i in 1:length(skies)){
 Skies$category = "cloudy_sky"
 Train = bind_rows(Sunsets, Trees, Rivers, Skies) 
 
+sub_train <- Train[sample(nrow(Train)),]
 
 # Models ------------------------------------------------------------------
 # Neural Network
@@ -94,22 +98,25 @@ table(truth=Train$category, pred = predtree)
 mean(Train$category == predtree)
 
 # Random Forest
+ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,])
+plot(ranfor$err.rate[,1], type="l")
+
+predrf = predict(ranfor, sub_train[551:664,], type='class')
+table(truth = sub_train[551:664,]$category, pred = predrf)
+mean(sub_train[551:664,]$category == predrf)
+
+# Random forest with full train data
 ranfor = randomForest(factor(category) ~ . - file, Train)
-ranfor
-
-predrf = predict(ranfor, Train, type='class')
-table(truth = Train$category, pred = predrf)
-mean(Train$category != predrf)
-
 
 # Submission file ---------------------------------------------------------
 Test <- myImgDFReshape(myFeatures(map_df(test_set[1], readJPEG_as_df)))
-for (i in 1:10){
+for (i in 1:length(test_set)){
   Test[i,] <- myImgDFReshape(myFeatures(map_df(test_set[i], readJPEG_as_df)))
 }
 
 Test %>% 
   ungroup %>% 
-  transmute(file=file, category = predict(nn_model, ., type = "class"))
+  transmute(file=file, category = predict(ranfor, ., type = "class")) %>% 
+  write.csv(file = "predictions.csv", row.names = F)
 
 
