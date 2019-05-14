@@ -8,6 +8,8 @@ library(glmnet)
 require(rpart)
 require(FNN)
 library(fBasics)
+library(caret)
+library(raster)
 
 
 # Load in data ------------------------------------------------------------
@@ -29,10 +31,10 @@ readJPEG_as_df <- function(path, featureExtractor = I) {
     mutate(file = basename(path), x = as.numeric(x)-1, y = as.numeric(y)-1) %>%
     mutate(pixel_id = x + 28 * y) %>% 
     rename(pixel_value = Freq) %>%
-    select(file, pixel_id, x, y, color, pixel_value)
+    dplyr::select(file, pixel_id, x, y, color, pixel_value)
 }
 
-nr = nc = 3
+nr = nc = 7
 myFeatures  <- . %>% # starting with '.' defines the pipe to be a function 
   group_by(file, X=cut(x, nr, labels = FALSE)-1, Y=cut(y, nc, labels=FALSE)-1, color) %>% 
   summarise(
@@ -41,9 +43,9 @@ myFeatures  <- . %>% # starting with '.' defines the pipe to be a function
     min = min(pixel_value),
     max = max(pixel_value),
     q25 = quantile(pixel_value, .25),
-    q75 = quantile(pixel_value, .75),
-    skew = skewness(pixel_value)[1],
-    kurt = kurtosis(pixel_value)[1]
+    q75 = quantile(pixel_value, .75)
+    #skew = skewness(pixel_value)[1],
+    #kurt = kurtosis(pixel_value)[1]
   ) 
 
 myImgDFReshape = . %>%
@@ -80,33 +82,25 @@ for (i in 1:length(skies)){
 Skies$category = "cloudy_sky"
 Train = bind_rows(Sunsets, Trees, Rivers, Skies) 
 
-sub_train <- Train[sample(nrow(Train)),]
-
 # Models ------------------------------------------------------------------
-# Neural Network
-nn_model = neuralnet(formula = category ~ .- file, data = Train, hidden = c(3,9), threshold = 0.05, stepmax = 1e6)
-plot(nn_model)
-
-
-
-# Normal tree model
-fittree = rpart(factor(category) ~ . - file, Train)
-opttree = prune(fittree, cp = 0.033333)
-
-predtree = predict(opttree, Train, type='class') # also try opttree in stead of fittree
-table(truth=Train$category, pred = predtree)
-mean(Train$category == predtree)
-
-# Random Forest
-ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,])
-plot(ranfor$err.rate[,1], type="l")
-
-predrf = predict(ranfor, sub_train[551:664,], type='class')
-table(truth = sub_train[551:664,]$category, pred = predrf)
-mean(sub_train[551:664,]$category == predrf)
-
-# Random forest with full train data
-ranfor = randomForest(factor(category) ~ . - file, Train)
+# Random Forest, build a loop to do some basic cross validation. 
+# The CV methods I tried caused many errors. 
+best_pred <- 0
+best_rf = 0
+for(i in 1:10){
+  sub_train <- Train[sample(nrow(Train)),] # shuffles the data
+  
+  ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,]) # runs the rf model on about 80% of the data
+  
+  predrf = predict(ranfor, sub_train[551:664,], type='class') # makes predictions on the 20% left over
+  
+  if(best_pred < mean(sub_train[551:664,]$category == predrf)){ # the best model gets saved
+    best_pred = mean(sub_train[551:664,]$category == predrf)
+    best_rf = ranfor
+  }
+  print(i) # the process takes a while so this is to know how far it is
+}
+best_rf
 
 # Submission file ---------------------------------------------------------
 Test <- myImgDFReshape(myFeatures(map_df(test_set[1], readJPEG_as_df)))
@@ -116,7 +110,7 @@ for (i in 1:length(test_set)){
 
 Test %>% 
   ungroup %>% 
-  transmute(file=file, category = predict(ranfor, ., type = "class")) %>% 
+  transmute(file=file, category = predict(best_rf, ., type = "class")) %>% 
   write.csv(file = "predictions.csv", row.names = F)
 
 
