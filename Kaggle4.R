@@ -1,16 +1,10 @@
 # Libraries ---------------------------------------------------------------
 library(tidyverse)
 library(jpeg)
-library(neuralnet)
-library(tree)
 library(randomForest)
-library(glmnet)
-require(rpart)
-require(FNN)
-library(fBasics)
 library(caret)
-library(raster)
 library(e1071)
+library(pracma)
 
 
 
@@ -33,11 +27,22 @@ readJPEG_as_df <- function(path, featureExtractor = I) {
     mutate(file = basename(path), x = as.numeric(x)-1, y = as.numeric(y)-1) %>%
     mutate(pixel_id = x + 28 * y) %>% 
     rename(pixel_value = Freq) %>%
-    dplyr::select(file, pixel_id, x, y, color, pixel_value)
+    select(file, pixel_id, x, y, color, pixel_value)
+  df %>%
+    featureExtractor
+  # euclidian distance
+  one = df$pixel_value[1:(length(df$pixel_value)/3)]
+  two = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)]
+  three = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)]
+  vec_eucl = sqrt(one^2 + two^2 + three^2)
+  df$eucl = rep(vec_eucl,3)
+  # extract features
+  df %>%
+    featureExtractor
 }
 
-nr = nc = 9
-myFeatures  <- . %>% # starting with '.' defines the pipe to be a function 
+nr = nc = 7
+myFeatures  <- . %>% 
   group_by(file, X=cut(x, nr, labels = FALSE)-1, Y=cut(y, nc, labels=FALSE)-1, color) %>% 
   summarise(
     m = mean(pixel_value),
@@ -46,10 +51,15 @@ myFeatures  <- . %>% # starting with '.' defines the pipe to be a function
     max = max(pixel_value),
     q25 = quantile(pixel_value, .25),
     q75 = quantile(pixel_value, .75),
+    inner_product = dot(pixel_value, pixel_value),
     median = median(pixel_value),
     energy = sum(pixel_value^2) / length(pixel_value), 
     range = diff(range(pixel_value)),
-    iqr1 = IQR(pixel_value))
+    iqr1 = IQR(pixel_value), 
+    m_eucl = mean(eucl),
+    s_eucl = sd(eucl), 
+    q25_eucl = quantile(eucl, .25), 
+    q75_eucl = quantile(eucl, .75))
 
 
 myImgDFReshape = . %>%
@@ -66,7 +76,6 @@ for (i in 1:length(sunsets)){
   Sunsets[i,] <- myImgDFReshape(myFeatures(map_df(sunsets[i], readJPEG_as_df)))
 }
 Sunsets$category = "sunsets"
-sum(is.na(Sunsets))
 
 Trees <- myImgDFReshape(myFeatures(map_df(trees[1], readJPEG_as_df)))
 for (i in 1:length(trees)){
@@ -90,51 +99,23 @@ Train = bind_rows(Sunsets, Trees, Rivers, Skies)
 
 
 # Models ------------------------------------------------------------------
+# Random forest
 control = trainControl(method="repeatedcv", number=5, repeats=2)
 metric <- "Accuracy"
-mtry <- sqrt(ncol(Train[,-1]))
-tunegrid <- expand.grid(.mtry=mtry)
 rf_default <- train(category~. -file, data=Train, method="rf", metric=metric, 
                     trControl=control)
-rf_default$metric
-# Random Forest, I build a loop to do some basic cross validation. 
-# The CV methods I tried caused many errors. 
-best_pred <- 0
-best_rf = 0
-for(i in 1:10){
-  sub_train <- Train[sample(nrow(Train)),] # shuffles the data
-  
-  ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,], mtry = sqrt(ncol(Train[,-1]))) # runs the rf model on about 80% of the data
-  
-  predrf = predict(ranfor, sub_train[551:664,], type='class') # makes predictions on the 20% left over
-  
-  if(best_pred < mean(sub_train[551:664,]$category == predrf)){ # the best model gets saved
-    best_pred = mean(sub_train[551:664,]$category == predrf)
-    best_rf = ranfor
-  }
-  print(i) # the process takes a while so this is to know how far it is
-}
-best_rf
 
+# mtry 69 was the best based on the cv
+ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,], mtry = 69) 
+predrf = predict(ranfor, sub_train[551:664,], type='class')
 
-# Boosting
-library(gbm)
-sub_train <- Train[sample(nrow(Train)),]
-boost_model = gbm(factor(category)~. - file, data = sub_train[1:550,],
-                  distribution = "gaussian", n.trees = 1000, interaction.depth = 10, 
-                  shrinkage = 0.2)
+# SVM model
+tune.out.radial=tune(svm, factor(category)~.-file, data=Train, kernel="radial", 
+                     ranges=list(cost=c(0.1,1,10,100,1000)))
+summary(tune.out.radial)
 
-boost_pred = predict.gbm(boost_model, sub_train[551:664,], n.trees = 1000, type ="response")
-boost_pred2 <- cbind(round(boost_pred),sub_train[551:664,]$category)
-
-boost_pred2[boost_pred2[,1] == "1",1] <- "cloudy_sky"
-boost_pred2[boost_pred2[,1] == "2",1] <- "rivers"
-boost_pred2[boost_pred2[,1] == "3",1] <- "sunsets"
-boost_pred2[boost_pred2[,1] == "4",1] <- "trees_and_forest"
-
-mean(boost_pred2[,1] == boost_pred2[,2])
-
-
+svmfit = svm(factor(category)~.-file, data=Train, kernel=("radial"),
+             cost=10)
 
 # Submission file ---------------------------------------------------------
 Test <- myImgDFReshape(myFeatures(map_df(test_set[1], readJPEG_as_df)))
@@ -144,7 +125,182 @@ for (i in 1:length(test_set)){
 
 Test %>% 
   ungroup %>% 
-  transmute(file=file, category = predict(best_rf, ., type = "class")) %>% 
+  transmute(file=file, category = predict(svmfit, ., type = "class")) %>% 
   write.csv(file = "predictions.csv", row.names = F)
 
 
+
+
+
+# Neural Network ----------------------------------------------------------
+## we tried to program a convolutional neural network
+## the code works - but running it took more than 6 hours so we had to stop it and go for a svm ...
+
+
+#loading keras library
+library(keras)
+# install_keras()
+
+# Functions for the neural network------------------------------------------------------------------------------
+
+# F1
+readJPEG_as_df <- function(path, featureExtractor = I) {
+  img = readJPEG(path)
+  d = dim(img)
+  dimnames(img) = list(x = 1:d[1], y = 1:d[2], color = c(1,2,3))
+  df <-
+    as.table(img) %>%
+    as.data.frame(stringAsFactors = F) %>%
+    mutate(file = basename(path), x = as.numeric(x), y = as.numeric(y)) %>%
+    mutate(pixel_id = x + 28 * y) %>%
+    rename(pixel_value = Freq) %>%
+    select(file, pixel_id, x, y, color, pixel_value)
+  df %>%
+    featureExtractor
+}
+
+#F2
+nr = nc = 32
+myFeatures  <- . %>% # starting with '.' defines the pipe to be a function
+  group_by(file, X=cut(x, nr, labels = FALSE), Y=cut(y, nc, labels=FALSE), color) %>%
+  summarise(
+    m = mean(pixel_value))
+
+#create data
+Sunsets = map_df(sunsets, readJPEG_as_df, featureExtractor = myFeatures) %>%
+  mutate(category = 1)
+Trees = map_df(trees, readJPEG_as_df, featureExtractor = myFeatures) %>%
+  mutate(category = 2)
+Rivers = map_df(rivers, readJPEG_as_df, featureExtractor = myFeatures) %>%
+  mutate(category = 3)
+Skies = map_df(skies, readJPEG_as_df, featureExtractor = myFeatures) %>% 
+  mutate(category = 4)
+
+Train = bind_rows(Sunsets, Trees, Rivers, Skies)
+
+##### Create an 4D-Array for the neural network
+
+# create empty arrays
+Train_array <- array(
+  data = 0,  
+  dim = c(length(unique(Train$file)), 32,32, 3)
+)
+
+Target_array <- array(
+  dim = c(length(unique(Train$file)))
+)
+
+# fill empty arrasy with the image data (each summarized in 32 x 32 pixels for each color channel)
+previousFile = ""
+cnt = 0
+for (i in 1:nrow(Train)) {
+  # checks if a new file is accessed
+  if(!strcmp(previousFile, Train[i,]$file)){
+    cnt = cnt + 1
+    previousFile <-  Train[i,]$file
+  }
+  Train_array[cnt, (Train[i,]$X), (Train[i,]$Y), (Train[i,]$color)] <- Train[i,]$m
+  Target_array[cnt] =  Train[i,]$category
+}
+
+# we found the following code in the internet and adjusted it for our purpose ----------------
+# prepare data
+train_y<-to_categorical(Target_array,num_classes = 4)
+train_x<-Train_array
+
+#TEST DATA
+test_x<-Test_array
+test_y<-to_categorical(TestTarget_array,num_classes=4) 
+
+#checking the dimentions
+dim(train_x)
+
+#a linear stack of layers
+model<-keras_model_sequential()
+
+#configuring the Model
+
+model %>%  
+  #defining a 2-D convolution layer
+  layer_conv_2d(filter=32,kernel_size=c(3,3),padding="same",                input_shape=c(32,32,3) ) %>%  
+  layer_activation("relu") %>%  
+  
+  #another 2-D convolution layer
+  
+  layer_conv_2d(filter=32 ,kernel_size=c(3,3))  %>%  layer_activation("relu") %>%
+  
+  #Defining a Pooling layer which reduces the dimentions of the #features map and reduces the computational complexity of the model
+  layer_max_pooling_2d(pool_size=c(2,2)) %>%  
+  
+  #dropout layer to avoid overfitting
+  
+  layer_dropout(0.25) %>%
+  
+  layer_conv_2d(filter=32 , kernel_size=c(3,3),padding="same") %>% layer_activation("relu") %>%  layer_conv_2d(filter=32,kernel_size=c(3,3) ) %>%  layer_activation("relu") %>%  
+  layer_max_pooling_2d(pool_size=c(2,2)) %>%  
+  layer_dropout(0.25) %>%
+  
+  #flatten the input  
+  layer_flatten() %>%  
+  
+  layer_dense(512) %>%  
+  layer_activation("relu") %>%  
+  
+  layer_dropout(0.5) %>%  
+  
+  #output layer-10 classes-10 units  
+  layer_dense(4) %>%  
+  
+  #applying softmax nonlinear activation function to the output layer #to calculate cross-entropy  
+  
+  layer_activation("softmax") 
+
+#for computing Probabilities of classes-"logit(log probabilities)
+
+#Model's Optimizer
+
+#defining the type of optimizer-ADAM-Adaptive Momentum Estimation
+
+opt<-optimizer_adam( lr= 0.0001 , decay = 1e-6 )
+
+#lr-learning rate , decay - learning rate decay over each update
+
+
+model %>%
+  compile(loss="categorical_crossentropy",
+          optimizer=opt,metrics = "accuracy")
+
+#Summary of the Model and its Architecture
+summary(model)
+
+#TRAINING PROCESS OF THE MODEL
+
+data_augmentation <- FALSE  
+
+if(!data_augmentation) {  
+  model %>% fit(train_x,train_y ,batch_size=32,
+                epochs=80,validation_data = list(test_x, test_y),
+                shuffle=TRUE)
+} else {  
+  
+  #Generating images
+  
+  gen_images <- image_data_generator(featurewise_center = TRUE,
+                                     featurewise_std_normalization = TRUE,
+                                     rotation_range = 20,
+                                     width_shift_range = 0.30,
+                                     height_shift_range = 0.30,
+                                     horizontal_flip = TRUE  )
+  
+  #Fit image data generator internal statistics to some sample data
+  gen_images %>% fit_image_data_generator(train_x)
+  #Generates batches of augmented/normalized data from image data and #labels to visually see the generated images by the Model
+  
+  model %>% fit_generator(
+    flow_images_from_data(train_x, train_y,gen_images,
+                          batch_size=32,save_to_dir="CNNimages/"),
+    steps_per_epoch=as.integer(50000/32),epochs = 80,
+    validation_data = list(test_x, test_y) )
+}
+
+#use save_to_dir argument to specify the directory to save the #images generated by the Model and to visually check the Model's #output and ability to classify images.
