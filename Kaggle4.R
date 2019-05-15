@@ -30,12 +30,12 @@ readJPEG_as_df <- function(path, featureExtractor = I) {
     select(file, pixel_id, x, y, color, pixel_value)
   df %>%
     featureExtractor
-  # euclidian distance
-  one = df$pixel_value[1:(length(df$pixel_value)/3)]
-  two = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)]
-  three = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)]
-  vec_eucl = sqrt(one^2 + two^2 + three^2)
-  df$eucl = rep(vec_eucl,3)
+  # euclidian distance of images IMED
+  first = df$pixel_value[1:(length(df$pixel_value)/3)]
+  second = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)]
+  third = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)]
+  vec_IMED = sqrt(first^2 + second^2 + third^2)
+  df$IMED = rep(vec_IMED,3)
   # extract features
   df %>%
     featureExtractor
@@ -56,10 +56,10 @@ myFeatures  <- . %>%
     energy = sum(pixel_value^2) / length(pixel_value), 
     range = diff(range(pixel_value)),
     iqr1 = IQR(pixel_value), 
-    m_eucl = mean(eucl),
-    s_eucl = sd(eucl), 
-    q25_eucl = quantile(eucl, .25), 
-    q75_eucl = quantile(eucl, .75))
+    m_IMED = mean(IMED),
+    s_IMED = sd(IMED), 
+    q25_IMED = quantile(IMED, .25), 
+    q75_IMED = quantile(IMED, .75))
 
 
 myImgDFReshape = . %>%
@@ -108,6 +108,7 @@ rf_default <- train(category~. -file, data=Train, method="rf", metric=metric,
 # mtry 69 was the best based on the cv
 ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,], mtry = 69) 
 predrf = predict(ranfor, sub_train[551:664,], type='class')
+
 
 # SVM model
 tune.out.radial=tune(svm, factor(category)~.-file, data=Train, kernel="radial", 
