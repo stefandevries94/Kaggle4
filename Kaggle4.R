@@ -10,6 +10,8 @@ require(FNN)
 library(fBasics)
 library(caret)
 library(raster)
+library(e1071)
+
 
 
 # Load in data ------------------------------------------------------------
@@ -34,7 +36,7 @@ readJPEG_as_df <- function(path, featureExtractor = I) {
     dplyr::select(file, pixel_id, x, y, color, pixel_value)
 }
 
-nr = nc = 7
+nr = nc = 9
 myFeatures  <- . %>% # starting with '.' defines the pipe to be a function 
   group_by(file, X=cut(x, nr, labels = FALSE)-1, Y=cut(y, nc, labels=FALSE)-1, color) %>% 
   summarise(
@@ -43,10 +45,12 @@ myFeatures  <- . %>% # starting with '.' defines the pipe to be a function
     min = min(pixel_value),
     max = max(pixel_value),
     q25 = quantile(pixel_value, .25),
-    q75 = quantile(pixel_value, .75)
-    #skew = skewness(pixel_value)[1],
-    #kurt = kurtosis(pixel_value)[1]
-  ) 
+    q75 = quantile(pixel_value, .75),
+    median = median(pixel_value),
+    energy = sum(pixel_value^2) / length(pixel_value), 
+    range = diff(range(pixel_value)),
+    iqr1 = IQR(pixel_value))
+
 
 myImgDFReshape = . %>%
   gather(feature, value, -file, -X, -Y, -color) %>% 
@@ -62,6 +66,7 @@ for (i in 1:length(sunsets)){
   Sunsets[i,] <- myImgDFReshape(myFeatures(map_df(sunsets[i], readJPEG_as_df)))
 }
 Sunsets$category = "sunsets"
+sum(is.na(Sunsets))
 
 Trees <- myImgDFReshape(myFeatures(map_df(trees[1], readJPEG_as_df)))
 for (i in 1:length(trees)){
@@ -82,15 +87,24 @@ for (i in 1:length(skies)){
 Skies$category = "cloudy_sky"
 Train = bind_rows(Sunsets, Trees, Rivers, Skies) 
 
+
+
 # Models ------------------------------------------------------------------
-# Random Forest, build a loop to do some basic cross validation. 
+control = trainControl(method="repeatedcv", number=5, repeats=2)
+metric <- "Accuracy"
+mtry <- sqrt(ncol(Train[,-1]))
+tunegrid <- expand.grid(.mtry=mtry)
+rf_default <- train(category~. -file, data=Train, method="rf", metric=metric, 
+                    trControl=control)
+rf_default$metric
+# Random Forest, I build a loop to do some basic cross validation. 
 # The CV methods I tried caused many errors. 
 best_pred <- 0
 best_rf = 0
 for(i in 1:10){
   sub_train <- Train[sample(nrow(Train)),] # shuffles the data
   
-  ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,]) # runs the rf model on about 80% of the data
+  ranfor = randomForest(factor(category) ~ . - file, sub_train[1:550,], mtry = sqrt(ncol(Train[,-1]))) # runs the rf model on about 80% of the data
   
   predrf = predict(ranfor, sub_train[551:664,], type='class') # makes predictions on the 20% left over
   
@@ -101,6 +115,26 @@ for(i in 1:10){
   print(i) # the process takes a while so this is to know how far it is
 }
 best_rf
+
+
+# Boosting
+library(gbm)
+sub_train <- Train[sample(nrow(Train)),]
+boost_model = gbm(factor(category)~. - file, data = sub_train[1:550,],
+                  distribution = "gaussian", n.trees = 1000, interaction.depth = 10, 
+                  shrinkage = 0.2)
+
+boost_pred = predict.gbm(boost_model, sub_train[551:664,], n.trees = 1000, type ="response")
+boost_pred2 <- cbind(round(boost_pred),sub_train[551:664,]$category)
+
+boost_pred2[boost_pred2[,1] == "1",1] <- "cloudy_sky"
+boost_pred2[boost_pred2[,1] == "2",1] <- "rivers"
+boost_pred2[boost_pred2[,1] == "3",1] <- "sunsets"
+boost_pred2[boost_pred2[,1] == "4",1] <- "trees_and_forest"
+
+mean(boost_pred2[,1] == boost_pred2[,2])
+
+
 
 # Submission file ---------------------------------------------------------
 Test <- myImgDFReshape(myFeatures(map_df(test_set[1], readJPEG_as_df)))
