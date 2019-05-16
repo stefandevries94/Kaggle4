@@ -30,16 +30,28 @@ readJPEG_as_df <- function(path, featureExtractor = I) {
     select(file, pixel_id, x, y, color, pixel_value)
   df %>%
     featureExtractor
-  # euclidian distance of images IMED
-  first = df$pixel_value[1:(length(df$pixel_value)/3)]
-  second = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)]
-  third = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)]
-  vec_IMED = sqrt(first^2 + second^2 + third^2)
-  df$IMED = rep(vec_IMED,3)
+  # euclidean distance between colors
+  r = df$pixel_value[1:(length(df$pixel_value)/3)] # values of the red channel
+  g = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)] # values of the green channel
+  b = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)] # values of the blue channel
+  vec_dist = sqrt(r^2 + g^2 + b^2) # compute the distance
+  df$IMED = rep(vec_IMED,3) # put it into the data frame
   # extract features
   df %>%
     featureExtractor
 }
+
+# euclidean distance between colors
+r = df$pixel_value[1:(length(df$pixel_value)/3)] # values of the red channel
+g = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)] # values of the green channel
+b = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)] # values of the blue channel
+vec_dist = sqrt(one^2 + two^2 + three^2) # compute the distance
+df$dist = rep(vec_dist,3) # put it into the data frame
+
+
+
+
+
 
 nr = nc = 7
 myFeatures  <- . %>% 
