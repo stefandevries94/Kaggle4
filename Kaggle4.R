@@ -35,7 +35,7 @@ readJPEG_as_df <- function(path, featureExtractor = I) {
   g = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)] # values of the green channel
   b = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)] # values of the blue channel
   vec_dist = sqrt(r^2 + g^2 + b^2) # compute the distance
-  df$IMED = rep(vec_IMED,3) # put it into the data frame
+  df$color_distance = rep(vec_dist,3) # put it into the data frame
   # extract features
   df %>%
     featureExtractor
@@ -56,10 +56,10 @@ myFeatures  <- . %>%
     energy = sum(pixel_value^2) / length(pixel_value), 
     range = diff(range(pixel_value)),
     iqr1 = IQR(pixel_value), 
-    m_IMED = mean(IMED),
-    s_IMED = sd(IMED), 
-    q25_IMED = quantile(IMED, .25), 
-    q75_IMED = quantile(IMED, .75))
+    m_color_distance = mean(color_distance),
+    s_color_distance = sd(color_distance), 
+    q25_color_distance = quantile(color_distance, .25), 
+    q75_color_distance = quantile(color_distance, .75))
 
 
 myImgDFReshape = . %>%
