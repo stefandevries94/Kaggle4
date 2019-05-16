@@ -41,18 +41,6 @@ readJPEG_as_df <- function(path, featureExtractor = I) {
     featureExtractor
 }
 
-# euclidean distance between colors
-r = df$pixel_value[1:(length(df$pixel_value)/3)] # values of the red channel
-g = df$pixel_value[((length(df$pixel_value)/3)+1):(length(df$pixel_value)/1.5)] # values of the green channel
-b = df$pixel_value[((length(df$pixel_value)/1.5)+1):length(df$pixel_value)] # values of the blue channel
-vec_dist = sqrt(one^2 + two^2 + three^2) # compute the distance
-df$dist = rep(vec_dist,3) # put it into the data frame
-
-
-
-
-
-
 nr = nc = 7
 myFeatures  <- . %>% 
   group_by(file, X=cut(x, nr, labels = FALSE)-1, Y=cut(y, nc, labels=FALSE)-1, color) %>% 
